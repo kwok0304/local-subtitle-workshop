@@ -46,6 +46,14 @@ jobs:
                   ('title="Models"', 'title="模型"'),
                   ('title="See on GitHub"', 'title="在 GitHub 查看"'),
               ],
+              "app/src/main/res/layout/fragment_models.xml": [
+                  ('hint="Search models"', 'hint="搜索模型"'),
+                  ('text="All"', 'text="全部"'),
+                  ('text="Installed"', 'text="已安装"'),
+                  ('text="Mobile"', 'text="移动端"'),
+                  ('text="Downloading"', 'text="下载中"'),
+                  ('text="Loading selected speech model into memory…"', 'text="正在将语音模型加载到内存，请稍候…"'),
+              ],
               "app/src/main/res/layout/fragment_generate.xml": [
                   ('text="Speech model"', 'text="语音识别模型"'),
                   ('text="Bundled model"', 'text="内置模型"'),
@@ -59,12 +67,31 @@ jobs:
                   ('text="Failed"', 'text="失败"'),
               ],
               "app/src/main/res/layout/fragment_settings.xml": [
+                  ('text="Batch subtitles"', 'text="批量字幕"'),
+                  ('text="Maximum words per subtitle"', 'text="每条字幕最大词数"'),
+                  ('text="10 words"', 'text="10 个词"'),
+                  ('text="Keep sentences together"', 'text="尽量保持句子完整"'),
+                  ('text="Remove Whisper SDH captions"', 'text="移除 Whisper 的音效说明字幕"'),
+                  ('text="Use VAD to skip silence for Whisper"', 'text="Whisper 使用 VAD 跳过静音"'),
+                  ('text="Whisper VAD model"', 'text="Whisper VAD 模型"'),
+                  ('text="Whisper VAD aggressiveness"', 'text="Whisper VAD 灵敏度"'),
+                  ('text="Whisper language"', 'text="Whisper 语言"'),
+                  ('text="Whisper thread count"', 'text="Whisper 线程数"'),
                   ('text="Translate subtitles"', 'text="翻译字幕"'),
                   ('text="Translation source"', 'text="翻译源语言"'),
                   ('text="Translation target"', 'text="翻译目标语言"'),
                   ('text="Export location"', 'text="导出位置"'),
+                  ('text="Private"', 'text="私有目录"'),
+                  ('text="Movies"', 'text="电影目录"'),
+                  ('text="Shorts preview"', 'text="短片预览"'),
+                  ('text="Caption size"', 'text="字幕大小"'),
+                  ('text="Uppercase highlighted words"', 'text="高亮词转为大写"'),
+                  ('text="Use word-by-word captions for vertical videos"', 'text="竖版视频逐词显示字幕"'),
+                  ('text="Don’t ask about Shorts mode again"', 'text="不再询问短片模式"'),
+                  ('text="Use smooth pan for auto-framing"', 'text="自动构图使用平滑平移"'),
                   ('text="Notifications"', 'text="通知"'),
                   ('text="Show completion notifications"', 'text="任务完成时发送通知"'),
+                  ('text="Show RAM usage on Generate"', 'text="在生成页显示内存占用"'),
               ],
               "app/src/main/res/layout/fragment_exports.xml": [
                   ('hint="Search exports"', 'hint="搜索导出内容"'),
@@ -84,10 +111,58 @@ jobs:
                   ('text="Del"', 'text="删除"'),
               ],
           }
+
           for filename, pairs in replacements.items():
               path = Path(filename)
               text = path.read_text(encoding="utf-8")
               for old, new in pairs:
+                  text = text.replace(old, new)
+              path.write_text(text, encoding="utf-8")
+
+          java_pairs = [
+              ('title = "Models";', 'title = "模型";'),
+              ('title = "Exports";', 'title = "导出";'),
+              ('title = "Settings";', 'title = "设置";'),
+              ('binding.toolbar.setTitle("Preview");', 'binding.toolbar.setTitle("预览");'),
+              ('"Shorts video detected"', '"检测到竖版短视频"'),
+              ('"Vertical videos can be captioned one word at a time for a Shorts-style preview."', '"竖版视频可逐词显示字幕，适合短视频预览。 "'),
+              ('"Word-by-word captions"', '"逐词字幕"'),
+              ('"Show one recognized word at a time. Best for short-form social clips."', '"每次显示一个识别出的词，适合短视频内容。 "'),
+              ('"Standard captions"', '"标准字幕"'),
+              ('"Create normal subtitle lines. Better for readability and longer speech."', '"生成常规字幕行，更适合阅读和较长的语音内容。 "'),
+              ('"Don\'t show this again"', '"不再提示"'),
+              ('"Search models"', '"搜索模型"'),
+              ('"Selected"', '"已选择"'),
+              ('"Installed"', '"已安装"'),
+              ('"Cloud"', '"云端下载"'),
+              ('"Mobile"', '"移动端"'),
+              ('"Heavy"', '"大型"'),
+              ('"Downloading"', '"下载中"'),
+              ('"Queued"', '"队列中"'),
+              ('"Paused"', '"已暂停"'),
+              ('"Get"', '"下载"'),
+              ('"Use"', '"使用"'),
+              ('"Delete"', '"删除"'),
+              ('"Cancel"', '"取消"'),
+              ('"Auto detect"', '"自动检测"'),
+              ('"Very aggressive"', '"高灵敏度"'),
+              ('"Aggressive"', '"较高灵敏度"'),
+              ('"Moderate"', '"中等灵敏度"'),
+              ('"Conservative"', '"低灵敏度"'),
+              ('"Automatic"', '"自动"'),
+              ('"Default"', '"默认"'),
+              ('"Download model"', '"下载模型"'),
+              ('"Use model"', '"使用模型"'),
+              ('"Delete model"', '"删除模型"'),
+              ('"Cancel download"', '"取消下载"'),
+              ('"Resume download"', '"继续下载"'),
+              ('"Pause download"', '"暂停下载"'),
+          ]
+          for path in Path("app/src/main").rglob("*"):
+              if path.suffix not in {".java", ".kt"}:
+                  continue
+              text = path.read_text(encoding="utf-8")
+              for old, new in java_pairs:
                   text = text.replace(old, new)
               path.write_text(text, encoding="utf-8")
           PY
