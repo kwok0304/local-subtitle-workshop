@@ -1,0 +1,117 @@
+name: Build Local Subtitle Workshop APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out build files
+        uses: actions/checkout@v4
+
+      - name: Check out upstream source
+        run: |
+          git clone https://github.com/Serkali-sudo/auto-subtitle-generator.git source
+          cd source
+          git checkout a5ae6abe8b13a7d3afc1a5f3c9b9e497be3004d6
+
+      - name: Apply Chinese UI identity
+        working-directory: source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "app/build.gradle": [
+                  ('applicationId "com.serhat.autosub"', 'applicationId "com.niugulu.localsub"'),
+                  ('versionName "1.5"', 'versionName "1.5-zh"'),
+              ],
+              "app/src/main/res/values/strings.xml": [
+                  ('>AutoSub<', '>本地字幕工坊<'),
+              ],
+              "app/src/main/res/menu/bottom_navigation_menu.xml": [
+                  ('title="Generate"', 'title="生成"'),
+                  ('title="Models"', 'title="模型"'),
+                  ('title="Exports"', 'title="导出"'),
+                  ('title="Settings"', 'title="设置"'),
+              ],
+              "app/src/main/res/menu/main_menu.xml": [
+                  ('title="Add Videos"', 'title="添加视频"'),
+                  ('title="Models"', 'title="模型"'),
+                  ('title="See on GitHub"', 'title="在 GitHub 查看"'),
+              ],
+              "app/src/main/res/layout/fragment_generate.xml": [
+                  ('text="Speech model"', 'text="语音识别模型"'),
+                  ('text="Bundled model"', 'text="内置模型"'),
+                  ('text="Models"', 'text="模型"'),
+                  ('text="Add"', 'text="添加"'),
+                  ('text="Stop"', 'text="停止"'),
+                  ('text="Export"', 'text="导出"'),
+                  ('text="Pending"', 'text="等待中"'),
+                  ('text="Processing"', 'text="处理中"'),
+                  ('text="Completed"', 'text="已完成"'),
+                  ('text="Failed"', 'text="失败"'),
+              ],
+              "app/src/main/res/layout/fragment_settings.xml": [
+                  ('text="Translate subtitles"', 'text="翻译字幕"'),
+                  ('text="Translation source"', 'text="翻译源语言"'),
+                  ('text="Translation target"', 'text="翻译目标语言"'),
+                  ('text="Export location"', 'text="导出位置"'),
+                  ('text="Notifications"', 'text="通知"'),
+                  ('text="Show completion notifications"', 'text="任务完成时发送通知"'),
+              ],
+              "app/src/main/res/layout/fragment_exports.xml": [
+                  ('hint="Search exports"', 'hint="搜索导出内容"'),
+                  ('text="Videos"', 'text="视频"'),
+                  ('text="Subtitles"', 'text="字幕"'),
+                  ('text="Folders"', 'text="文件夹"'),
+                  ('text="No exports yet"', 'text="暂时没有导出文件"'),
+              ],
+              "app/src/main/res/layout/item_queue.xml": [
+                  ('text="Cancel"', 'text="取消"'),
+                  ('text="Export video"', 'text="导出视频"'),
+                  ('text="Export subs"', 'text="导出字幕"'),
+                  ('text="Create Shorts"', 'text="生成短片"'),
+                  ('text="Share"', 'text="分享"'),
+                  ('text="Play"', 'text="播放"'),
+                  ('text="Retry"', 'text="重试"'),
+                  ('text="Del"', 'text="删除"'),
+              ],
+          }
+
+          for filename, pairs in replacements.items():
+              path = Path(filename)
+              text = path.read_text(encoding="utf-8")
+              for old, new in pairs:
+                  text = text.replace(old, new)
+              path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build debug APK
+        working-directory: source
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-subtitle-workshop-zh-apk
+          path: source/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
