@@ -13,10 +13,10 @@ index 3d82ea3..7ae476f 100644
              <meta-data
 diff --git a/app/src/main/java/com/serhat/autosub/ui/generate/DouyinWebImporter.java b/app/src/main/java/com/serhat/autosub/ui/generate/DouyinWebImporter.java
 new file mode 100644
-index 0000000..7b5a0b2
+index 0000000..c6e9a5b
 --- /dev/null
 +++ b/app/src/main/java/com/serhat/autosub/ui/generate/DouyinWebImporter.java
-@@ -0,0 +1,348 @@
+@@ -0,0 +1,363 @@
 +package com.serhat.autosub.ui.generate;
 +
 +import android.content.Context;
@@ -27,6 +27,7 @@ index 0000000..7b5a0b2
 +import android.webkit.JavascriptInterface;
 +import android.webkit.WebChromeClient;
 +import android.webkit.WebResourceRequest;
++import android.webkit.WebResourceResponse;
 +import android.webkit.WebSettings;
 +import android.webkit.WebView;
 +import android.webkit.WebViewClient;
@@ -47,9 +48,7 @@ index 0000000..7b5a0b2
 +import java.io.InputStream;
 +import java.net.HttpURLConnection;
 +import java.net.URL;
-+import java.util.HashSet;
 +import java.util.Locale;
-+import java.util.Set;
 +import java.util.concurrent.ExecutorService;
 +import java.util.concurrent.Executors;
 +import java.util.concurrent.atomic.AtomicBoolean;
@@ -83,9 +82,12 @@ index 0000000..7b5a0b2
 +    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 +    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 +    private final AtomicBoolean cancelled = new AtomicBoolean(false);
-+    private final Set<String> seenResources = new HashSet<>();
 +    private String sourcePageUrl = "https://www.douyin.com/";
 +    private String cookieHeader = "";
++    private String bestVideoUrl;
++    private String bestAudioUrl;
++    private int bestVideoRate = -1;
++    private int bestAudioRate = -1;
 +    private long startedAt;
 +    private boolean downloadStarted;
 +    private boolean disposed;
@@ -137,7 +139,7 @@ index 0000000..7b5a0b2
 +        settings.setLoadWithOverviewMode(true);
 +        settings.setMediaPlaybackRequiresUserGesture(false);
 +        settings.setUserAgentString(DESKTOP_USER_AGENT);
-+        settings.setLoadsImagesAutomatically(false);
++        settings.setLoadsImagesAutomatically(true);
 +        settings.setAllowFileAccess(false);
 +        settings.setAllowContentAccess(false);
 +        CookieManager.getInstance().setAcceptCookie(true);
@@ -148,6 +150,15 @@ index 0000000..7b5a0b2
 +            @Override
 +            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
 +                return false;
++            }
++
++            @Override
++            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
++                String resource = request.getUrl() == null ? "" : request.getUrl().toString();
++                if (isMediaCandidate(resource)) {
++                    mainHandler.post(() -> handleResourceCandidate(resource));
++                }
++                return super.shouldInterceptRequest(view, request);
 +            }
 +
 +            @Override
@@ -172,6 +183,9 @@ index 0000000..7b5a0b2
 +    private void collectPerformanceResources() {
 +        if (cancelled.get() || downloadStarted) return;
 +        String script = "(function(){try{" +
++                "document.querySelectorAll('video').forEach(function(v){v.muted=true;" +
++                "var p=v.play();if(p&&p.catch)p.catch(function(){});});" +
++                "window.scrollTo(0,Math.max(0,document.body.scrollHeight/3));" +
 +                "var xs=performance.getEntriesByType('resource').map(function(e){return e.name;})" +
 +                ".filter(function(u){return /douyinvod|media-video|media-audio|mime_type=video_mp4/i.test(u);});" +
 +                "LocalSubtitleBridge.onResources(JSON.stringify({page:location.href,items:xs}));" +
@@ -193,38 +207,39 @@ index 0000000..7b5a0b2
 +            sourcePageUrl = payload.optString("page", sourcePageUrl);
 +            JSONArray items = payload.optJSONArray("items");
 +            if (items == null) return;
-+            String bestVideo = null;
-+            String bestAudio = null;
-+            int bestVideoRate = -1;
-+            int bestAudioRate = -1;
 +            for (int index = 0; index < items.length(); index++) {
-+                String resource = items.optString(index, "");
-+                if (resource.isEmpty() || !seenResources.add(resource)) continue;
-+                int rate = queryInt(resource, "br");
-+                if (resource.contains("media-video") && rate > bestVideoRate) {
-+                    bestVideo = resource;
-+                    bestVideoRate = rate;
-+                } else if (resource.contains("media-audio") && rate > bestAudioRate) {
-+                    bestAudio = resource;
-+                    bestAudioRate = rate;
-+                }
++                handleResourceCandidate(items.optString(index, ""));
 +            }
-+            if (bestVideo == null || bestAudio == null) {
-+                // Re-scan the full set on later polls, because video and audio entries may arrive separately.
-+                seenResources.clear();
-+                return;
-+            }
-+            downloadStarted = true;
-+            mainHandler.removeCallbacksAndMessages(null);
-+            String cookies = CookieManager.getInstance().getCookie(sourcePageUrl);
-+            cookieHeader = cookies == null ? "" : cookies;
-+            String videoUrl = bestVideo;
-+            String audioUrl = bestAudio;
-+            callback.onProgress("已找到视频，准备下载…", 0);
-+            executor.execute(() -> downloadAndMux(videoUrl, audioUrl));
 +        } catch (Exception ignored) {
 +            // A partially loaded page may produce incomplete data. The next poll retries.
 +        }
++    }
++
++    private void handleResourceCandidate(String resource) {
++        if (cancelled.get() || downloadStarted || !isMediaCandidate(resource)) return;
++        int rate = queryInt(resource, "br");
++        if (resource.contains("media-video") && rate >= bestVideoRate) {
++            bestVideoUrl = resource;
++            bestVideoRate = rate;
++        } else if (resource.contains("media-audio") && rate >= bestAudioRate) {
++            bestAudioUrl = resource;
++            bestAudioRate = rate;
++        }
++        if (bestVideoUrl == null || bestAudioUrl == null) return;
++
++        downloadStarted = true;
++        mainHandler.removeCallbacksAndMessages(null);
++        String cookies = CookieManager.getInstance().getCookie(sourcePageUrl);
++        cookieHeader = cookies == null ? "" : cookies;
++        String videoUrl = bestVideoUrl;
++        String audioUrl = bestAudioUrl;
++        callback.onProgress("已找到视频，准备下载…", 0);
++        executor.execute(() -> downloadAndMux(videoUrl, audioUrl));
++    }
++
++    private static boolean isMediaCandidate(String resource) {
++        return resource != null && (resource.contains("media-video")
++                || resource.contains("media-audio"));
 +    }
 +
 +    private void downloadAndMux(String videoUrl, String audioUrl) {

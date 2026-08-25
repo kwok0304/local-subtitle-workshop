@@ -17,6 +17,7 @@ https://github.com/kwok0304/local-subtitle-workshop
 - 当前采用 Android 原生方案：隐藏 WebView 执行抖音网页自身逻辑，从 Performance Resource Timing 取得 `media-video-avc1` 与 `media-audio-mp4a`，手机直接下载并用 APK 已内置的 FFmpeg 合并。
 - 同一作品已验证在未登录网页会话下也能取得视频与音频资源。
 - Android 构建补丁：`patches/douyin-native-import.patch`。
+- 真机首版曾卡在“正在识别视频资源”；1.6.1 起增加 WebView 原生请求拦截，并主动播放/滚动页面触发懒加载。
 
 ## 用户真实目标（后续优先级）
 用户要的不是手动导入视频，而是：
