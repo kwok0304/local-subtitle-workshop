@@ -11,13 +11,13 @@ https://github.com/kwok0304/local-subtitle-workshop
 - 主工作流：`.github/workflows/build-apk.yml`。
 - 注意：此仓库的工作流会克隆上游 `Serkali-sudo/auto-subtitle-generator` 源码，再在构建时应用中文化补丁；仓库当前不是完整 Android 源码镜像。
 
-## 2026-08-25 抖音原生导入
+## 2026-08-25 独立抖音下载助手
 - 已用 `https://v.douyin.com/kJY6N2TxtJw/` 验证作品可下载；作品 ID `7677567300928654598`，成品 MP4 为 25:11.67、1080×1920、H.264/AAC。
 - 用户不希望开启 Tailscale（会占用 Android VPN 槽并影响 V2Ray），因此已放弃 Windows 后端方案，也删除了计划任务与服务。
-- 当前采用 Android 原生方案：隐藏 WebView 执行抖音网页自身逻辑，从 Performance Resource Timing 取得 `media-video-avc1` 与 `media-audio-mp4a`，手机直接下载并用 APK 已内置的 FFmpeg 合并。
+- 隐藏 WebView 在两次真机测试中均无法触发视频资源，因此不再把下载器嵌入字幕工坊。
+- 当前采用独立 App：显示完整抖音 WebView，提供登录/清除登录入口；捕获视频和音频请求、手机直接下载并用 FFmpeg 合并，保存到 `下载/DouyinDownloader`。
 - 同一作品已验证在未登录网页会话下也能取得视频与音频资源。
-- Android 构建补丁：`patches/douyin-native-import.patch`。
-- 真机首版曾卡在“正在识别视频资源”；1.6.1 起增加 WebView 原生请求拦截，并主动播放/滚动页面触发懒加载。
+- Android 构建补丁：`patches/douyin-downloader-app.patch`。
 
 ## 用户真实目标（后续优先级）
 用户要的不是手动导入视频，而是：

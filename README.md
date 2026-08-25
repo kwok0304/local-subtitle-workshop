@@ -1,9 +1,10 @@
 # 本地字幕工坊
 
-Android 本地字幕工具。可选择手机里的视频，也可直接粘贴抖音公开视频分享链接：
+本仓库构建两个互相独立的 Android App：
 
-`WebView 原生解析 → 手机下载视频/音频 → FFmpeg 合并 MP4 → 本地语音识别`
+- **抖音下载助手**：可见 WebView 登录/验证 → 下载并合并 → 保存到系统下载目录。
+- **本地字幕工坊**：从手机选择下载好的视频 → 本地语音识别与字幕导出。
 
-不需要电脑后端、Tailscale 或额外 VPN。GitHub Actions 会克隆固定版本的上游
-Android 源码，应用中文化及 [`patches/douyin-native-import.patch`](patches/douyin-native-import.patch)，
-然后仅上传 `arm64-v8a` APK。
+不需要电脑后端、Tailscale 或额外 VPN。下载助手的登录 Cookie 仅保存在 Android
+WebView 的 App 私有数据中。GitHub Actions 会克隆固定版本上游、应用补丁，并分别上传
+两个 `arm64-v8a` APK。
