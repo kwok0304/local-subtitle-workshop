@@ -32,6 +32,9 @@ jobs:
       - name: Recommend fast Chinese mobile models
         run: git -C source apply ../patches/subtitle-cn-model-guidance.patch
 
+      - name: Fix subtitle sharing and add Markdown export
+        run: git -C source apply ../patches/subtitle-export-sharing-md.patch
+
       - name: Apply Chinese UI identity
         working-directory: source
         run: |
@@ -41,8 +44,8 @@ jobs:
           replacements = {
               "app/build.gradle": [
                   ('applicationId "com.serhat.autosub"', 'applicationId "com.niugulu.localsub"'),
-                  ('versionCode 6', 'versionCode 10'),
-                  ('versionName "1.5"', 'versionName "1.8-zh-cn-fast"'),
+                  ('versionCode 6', 'versionCode 11'),
+                  ('versionName "1.5"', 'versionName "1.9-zh-share-md"'),
               ],
               "app/src/main/res/values/strings.xml": [
                   ('>AutoSub<', '>本地字幕工坊<'),

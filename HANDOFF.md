@@ -21,6 +21,13 @@ https://github.com/kwok0304/local-subtitle-workshop
 - 版本 `1.8-zh-cn-fast` / `versionCode 10` 将 57M 的中文 Whisper Base Q5_1 提到列表前部并明确标为推荐；点击中文 Vosk 服务器大模型时会提供一键改下推荐模型。
 - 中文模型引导补丁：`patches/subtitle-cn-model-guidance.patch`。
 
+## 2026-08-25 字幕文件打开、分享与 Markdown
+- 真机点击导出列表的 SRT/VTT 会闪退，根因是工作流修改了 `applicationId`，但 Manifest 的 FileProvider authority 仍写死上游包名。
+- 版本 `1.9-zh-share-md` / `versionCode 11` 改为 `${applicationId}.provider`，并将 URI 创建也纳入异常处理，避免再次直接崩溃。
+- 点击文件现在显示操作菜单：用其他应用打开、分享到 ChatGPT 等应用、通过系统文件选择器保存副本。
+- 支持从识别结果直接导出带时间轴的 `.md`；现有 SRT/VTT 也可生成 Markdown 副本并立即分享。
+- 补丁：`patches/subtitle-export-sharing-md.patch`。
+
 ## 2026-08-25 独立抖音下载助手
 - 已用 `https://v.douyin.com/kJY6N2TxtJw/` 验证作品可下载；作品 ID `7677567300928654598`，成品 MP4 为 25:11.67、1080×1920、H.264/AAC。
 - 用户不希望开启 Tailscale（会占用 Android VPN 槽并影响 V2Ray），因此已放弃 Windows 后端方案，也删除了计划任务与服务。

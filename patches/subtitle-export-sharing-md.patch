@@ -1,0 +1,503 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 3d82ea3..7ae476f 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -54,7 +54,7 @@
+ 
+         <provider
+             android:name="androidx.core.content.FileProvider"
+-            android:authorities="com.serhat.autosub.provider"
++            android:authorities="${applicationId}.provider"
+             android:exported="false"
+             android:grantUriPermissions="true">
+             <meta-data
+diff --git a/app/src/main/java/com/serhat/autosub/exports/ExportFileActions.java b/app/src/main/java/com/serhat/autosub/exports/ExportFileActions.java
+index de7771c..80dfc43 100644
+--- a/app/src/main/java/com/serhat/autosub/exports/ExportFileActions.java
++++ b/app/src/main/java/com/serhat/autosub/exports/ExportFileActions.java
+@@ -1,5 +1,6 @@
+ package com.serhat.autosub.exports;
+ 
++import android.content.ClipData;
+ import android.content.Context;
+ import android.content.Intent;
+ import android.net.Uri;
+@@ -13,7 +14,15 @@ import com.serhat.autosub.R;
+ import com.serhat.autosub.ui.common.AppOptionDialog;
+ import com.serhat.autosub.ui.main.MainViewModel;
+ 
++import java.io.BufferedReader;
+ import java.io.File;
++import java.io.FileInputStream;
++import java.io.FileOutputStream;
++import java.io.InputStreamReader;
++import java.io.OutputStreamWriter;
++import java.io.Writer;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
+ import java.util.Locale;
+ 
+ public final class ExportFileActions {
+@@ -31,7 +40,8 @@ public final class ExportFileActions {
+ 
+     public static boolean isSubtitle(File file) {
+         String name = file == null ? "" : file.getName().toLowerCase(Locale.US);
+-        return name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass");
++        return name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass")
++                || name.endsWith(".md");
+     }
+ 
+     public static void showExportCompleteDialog(Fragment fragment, MainViewModel viewModel,
+@@ -137,14 +147,16 @@ public final class ExportFileActions {
+             Toast.makeText(context, "File is not available", Toast.LENGTH_SHORT).show();
+             return;
+         }
+-        Intent intent = new Intent(Intent.ACTION_VIEW);
+-        Uri fileUri = androidx.core.content.FileProvider.getUriForFile(context, context.getPackageName() + ".provider", file);
+-        intent.setDataAndType(fileUri, getMimeType(file));
+-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+         try {
+-            context.startActivity(intent);
++            Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
++                    context, context.getPackageName() + ".provider", file);
++            Intent intent = new Intent(Intent.ACTION_VIEW);
++            intent.setDataAndType(fileUri, getMimeType(file));
++            intent.setClipData(ClipData.newRawUri(file.getName(), fileUri));
++            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
++            context.startActivity(Intent.createChooser(intent, "选择打开字幕的应用"));
+         } catch (Exception e) {
+-            Toast.makeText(context, "No app can open this file", Toast.LENGTH_SHORT).show();
++            Toast.makeText(context, "无法打开文件，请尝试“分享到其他应用”", Toast.LENGTH_LONG).show();
+         }
+     }
+ 
+@@ -161,16 +173,77 @@ public final class ExportFileActions {
+             Toast.makeText(context, "File is not available", Toast.LENGTH_SHORT).show();
+             return;
+         }
+-        Intent shareIntent = new Intent(Intent.ACTION_SEND);
+-        shareIntent.setType(getMimeType(file));
+-        Uri fileUri = androidx.core.content.FileProvider.getUriForFile(context, context.getPackageName() + ".provider", file);
+-        shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
+-        shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+         try {
+-            context.startActivity(Intent.createChooser(shareIntent, "Share export"));
++            Uri fileUri = androidx.core.content.FileProvider.getUriForFile(
++                    context, context.getPackageName() + ".provider", file);
++            Intent shareIntent = new Intent(Intent.ACTION_SEND);
++            shareIntent.setType(isSubtitle(file) ? "text/plain" : getMimeType(file));
++            shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
++            shareIntent.putExtra(Intent.EXTRA_TITLE, file.getName());
++            shareIntent.setClipData(ClipData.newRawUri(file.getName(), fileUri));
++            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
++            context.startActivity(Intent.createChooser(shareIntent, "分享到 ChatGPT 或其他应用"));
+         } catch (Exception e) {
+-            Toast.makeText(context, "No app can share this file", Toast.LENGTH_SHORT).show();
++            Toast.makeText(context, "没有应用可以接收这个文件", Toast.LENGTH_SHORT).show();
++        }
++    }
++
++    public static File createMarkdownCopy(File source) throws IOException {
++        if (source == null || !source.isFile() || !isSubtitle(source)) {
++            throw new IOException("字幕文件不可用");
++        }
++        String fileName = source.getName();
++        int dot = fileName.lastIndexOf('.');
++        String baseName = dot > 0 ? fileName.substring(0, dot) : fileName;
++        File markdownFile = new File(source.getParentFile(), baseName + ".md");
++        int suffix = 2;
++        while (markdownFile.exists()) {
++            markdownFile = new File(source.getParentFile(), baseName + "-" + suffix + ".md");
++            suffix++;
++        }
++
++        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
++                     new FileInputStream(source), StandardCharsets.UTF_8));
++             Writer writer = new OutputStreamWriter(
++                     new FileOutputStream(markdownFile), StandardCharsets.UTF_8)) {
++            writer.write("# 字幕文本\n\n");
++            writer.write("> 由本地字幕工坊生成，保留时间轴，便于在 ChatGPT 等应用中分析。\n\n");
++            String timeRange = "";
++            StringBuilder text = new StringBuilder();
++            String line;
++            while ((line = reader.readLine()) != null) {
++                String trimmed = line.trim();
++                if (trimmed.equalsIgnoreCase("WEBVTT")) {
++                    continue;
++                }
++                if (trimmed.contains("-->")) {
++                    writeMarkdownBlock(writer, timeRange, text);
++                    timeRange = trimmed.replace("-->", "→");
++                } else if (trimmed.isEmpty()) {
++                    writeMarkdownBlock(writer, timeRange, text);
++                    timeRange = "";
++                } else if (!(timeRange.isEmpty() && trimmed.matches("\\d+"))) {
++                    if (text.length() > 0) text.append("  \n");
++                    text.append(trimmed);
++                }
++            }
++            writeMarkdownBlock(writer, timeRange, text);
++        } catch (IOException error) {
++            markdownFile.delete();
++            throw error;
++        }
++        return markdownFile;
++    }
++
++    private static void writeMarkdownBlock(Writer writer, String timeRange,
++                                           StringBuilder text) throws IOException {
++        if (text.length() == 0) return;
++        if (timeRange != null && !timeRange.isEmpty()) {
++            writer.write("## " + timeRange + "\n\n");
+         }
++        writer.write(text.toString());
++        writer.write("\n\n");
++        text.setLength(0);
+     }
+ 
+     private static boolean startWithFileUri(Context context, Intent intent) {
+@@ -186,14 +259,15 @@ public final class ExportFileActions {
+         }
+     }
+ 
+-    private static String getMimeType(File file) {
++    public static String getMimeType(File file) {
+         if (file == null) {
+             return "*/*";
+         }
+         String name = file.getName().toLowerCase(Locale.US);
+-        if (name.endsWith(".srt")) return "application/x-subrip";
+-        if (name.endsWith(".vtt")) return "text/vtt";
++        if (name.endsWith(".srt")) return "text/plain";
++        if (name.endsWith(".vtt")) return "text/plain";
+         if (name.endsWith(".ass")) return "text/plain";
++        if (name.endsWith(".md")) return "text/markdown";
+         if (name.endsWith(".mkv")) return "video/x-matroska";
+         String extension = MimeTypeMap.getFileExtensionFromUrl(file.getName());
+         String mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
+diff --git a/app/src/main/java/com/serhat/autosub/exports/ExportsFragment.java b/app/src/main/java/com/serhat/autosub/exports/ExportsFragment.java
+index 3d1c28d..7f15439 100644
+--- a/app/src/main/java/com/serhat/autosub/exports/ExportsFragment.java
++++ b/app/src/main/java/com/serhat/autosub/exports/ExportsFragment.java
+@@ -1,6 +1,8 @@
+ package com.serhat.autosub.exports;
+ 
++import android.app.Activity;
+ import android.content.Intent;
++import android.net.Uri;
+ import android.os.Bundle;
+ import android.text.Editable;
+ import android.text.TextWatcher;
+@@ -14,6 +16,8 @@ import android.widget.EditText;
+ import android.widget.Toast;
+ 
+ import androidx.activity.OnBackPressedCallback;
++import androidx.activity.result.ActivityResultLauncher;
++import androidx.activity.result.contract.ActivityResultContracts;
+ import androidx.annotation.NonNull;
+ import androidx.annotation.Nullable;
+ import androidx.appcompat.app.AppCompatActivity;
+@@ -26,12 +30,15 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+ import com.serhat.autosub.R;
+ import com.serhat.autosub.core.ApplicationPath;
+ import com.serhat.autosub.databinding.FragmentExportsBinding;
++import com.serhat.autosub.models.VoskModelInfo;
++import com.serhat.autosub.ui.common.AppOptionDialog;
+ import com.serhat.autosub.ui.main.MainViewModel;
+ 
+ import java.io.File;
+ import java.io.FileInputStream;
+ import java.io.FileOutputStream;
+ import java.io.IOException;
++import java.io.OutputStream;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.Comparator;
+@@ -48,6 +55,31 @@ public class ExportsFragment extends Fragment implements ActionMode.Callback {
+     private File currentDir;
+     private ActionMode actionMode;
+     private OnBackPressedCallback backCallback;
++    private File pendingCopyFile;
++    private final ActivityResultLauncher<Intent> saveCopyLauncher = registerForActivityResult(
++            new ActivityResultContracts.StartActivityForResult(), result -> {
++                File source = pendingCopyFile;
++                pendingCopyFile = null;
++                if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null
++                        || result.getData().getData() == null || source == null || !source.isFile()) {
++                    return;
++                }
++                Uri destination = result.getData().getData();
++                try (FileInputStream input = new FileInputStream(source);
++                     OutputStream output = requireContext().getContentResolver().openOutputStream(destination)) {
++                    if (output == null) throw new IOException("无法写入选择的位置");
++                    byte[] buffer = new byte[8192];
++                    int read;
++                    while ((read = input.read(buffer)) != -1) {
++                        output.write(buffer, 0, read);
++                    }
++                    Toast.makeText(requireContext(), "副本已保存", Toast.LENGTH_SHORT).show();
++                } catch (Exception error) {
++                    if (isAdded()) {
++                        Toast.makeText(requireContext(), "保存失败：" + error.getMessage(), Toast.LENGTH_LONG).show();
++                    }
++                }
++            });
+ 
+     @Nullable
+     @Override
+@@ -109,7 +141,7 @@ public class ExportsFragment extends Fragment implements ActionMode.Callback {
+                 if (item.getType() == ExportedFileItem.Type.FOLDER) {
+                     openFolder(item.getFile());
+                 } else {
+-                    ExportFileActions.openFile(requireContext(), item.getFile());
++                    showFileActions(item);
+                 }
+             }
+ 
+@@ -145,6 +177,72 @@ public class ExportsFragment extends Fragment implements ActionMode.Callback {
+         updateLayoutManager();
+     }
+ 
++    private void showFileActions(ExportedFileItem item) {
++        File file = item.getFile();
++        String lowerName = file.getName().toLowerCase(Locale.US);
++        boolean canCreateMarkdown = item.getType() == ExportedFileItem.Type.SUBTITLE
++                && (lowerName.endsWith(".srt") || lowerName.endsWith(".vtt"));
++        AppOptionDialog.Option[] options = canCreateMarkdown
++                ? new AppOptionDialog.Option[]{
++                        new AppOptionDialog.Option(R.drawable.ri_file_text_line,
++                                "用其他应用打开", "选择文本编辑器、文件管理器或其他兼容应用。"),
++                        new AppOptionDialog.Option(R.drawable.ri_share_line,
++                                "分享到 ChatGPT 等", "把字幕作为文本附件发送到其他应用。"),
++                        new AppOptionDialog.Option(R.drawable.ri_folder_settings_line,
++                                "保存副本", "通过系统文件选择器保存到任意文件夹。"),
++                        new AppOptionDialog.Option(R.drawable.ri_export_line,
++                                "生成 Markdown 并分享", "保留时间轴，生成适合 AI 分析的 Markdown 副本。")
++                }
++                : new AppOptionDialog.Option[]{
++                        new AppOptionDialog.Option(R.drawable.ri_file_text_line,
++                                "用其他应用打开", "选择文件管理器或其他兼容应用。"),
++                        new AppOptionDialog.Option(R.drawable.ri_share_line,
++                                "分享到 ChatGPT 等", "把文件发送到其他应用。"),
++                        new AppOptionDialog.Option(R.drawable.ri_folder_settings_line,
++                                "保存副本", "通过系统文件选择器保存到任意文件夹。")
++                };
++        AppOptionDialog.show(requireContext(), file.getName(), "选择要执行的操作。", options, which -> {
++            if (which == 0) {
++                ExportFileActions.openFile(requireContext(), file);
++            } else if (which == 1) {
++                ExportFileActions.shareFile(requireContext(), file);
++            } else if (which == 2) {
++                requestSaveCopy(file);
++            } else if (which == 3 && canCreateMarkdown) {
++                createMarkdownAndShare(item);
++            }
++        });
++    }
++
++    private void requestSaveCopy(File file) {
++        if (file == null || !file.isFile()) {
++            Toast.makeText(requireContext(), "文件不可用", Toast.LENGTH_SHORT).show();
++            return;
++        }
++        pendingCopyFile = file;
++        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
++        intent.addCategory(Intent.CATEGORY_OPENABLE);
++        intent.setType(ExportFileActions.getMimeType(file));
++        intent.putExtra(Intent.EXTRA_TITLE, file.getName());
++        saveCopyLauncher.launch(intent);
++    }
++
++    private void createMarkdownAndShare(ExportedFileItem item) {
++        try {
++            File markdownFile = ExportFileActions.createMarkdownCopy(item.getFile());
++            ExportRecord record = item.getRecord();
++            VoskModelInfo modelInfo = record == null ? null
++                    : viewModel.getModelManager().findById(record.getModelId());
++            exportStore.addFile(markdownFile, rootDir, ExportRecord.TYPE_SUBTITLE, modelInfo,
++                    record == null ? "" : record.getSourceVideoUri(),
++                    record == null ? "" : record.getSourceVideoName(), "md-transcript", "md");
++            loadExports();
++            ExportFileActions.shareFile(requireContext(), markdownFile);
++        } catch (Exception error) {
++            Toast.makeText(requireContext(), "生成 Markdown 失败：" + error.getMessage(), Toast.LENGTH_LONG).show();
++        }
++    }
++
+     private void updateLayoutManager() {
+         boolean isGrid = adapter.getLayoutMode() == ExportedFileAdapter.VIEW_TYPE_GRID;
+         if (isGrid) {
+diff --git a/app/src/main/java/com/serhat/autosub/service/AutoSubTaskService.java b/app/src/main/java/com/serhat/autosub/service/AutoSubTaskService.java
+index 7b2d2b4..f7babea 100644
+--- a/app/src/main/java/com/serhat/autosub/service/AutoSubTaskService.java
++++ b/app/src/main/java/com/serhat/autosub/service/AutoSubTaskService.java
+@@ -771,9 +771,11 @@ public class AutoSubTaskService extends Service {
+                         handler.post(() -> {
+                             batchRunning = false;
+                             boolean subtitleFile = outputMode == SubtitleGenerator.CondensedOutputMode.SRT
+-                                    || outputMode == SubtitleGenerator.CondensedOutputMode.VTT;
++                                    || outputMode == SubtitleGenerator.CondensedOutputMode.VTT
++                                    || outputMode == SubtitleGenerator.CondensedOutputMode.MD;
+                             String extension = subtitleFile
+-                                    ? (outputMode == SubtitleGenerator.CondensedOutputMode.SRT ? "srt" : "vtt")
++                                    ? (outputMode == SubtitleGenerator.CondensedOutputMode.SRT ? "srt"
++                                    : outputMode == SubtitleGenerator.CondensedOutputMode.VTT ? "vtt" : "md")
+                                     : "mp4";
+                             registerExport(filePath, subtitleFile ? ExportRecord.TYPE_SUBTITLE : ExportRecord.TYPE_VIDEO, item.getVideoUri(),
+                                     item.getDisplayName(), useVad ? "silence-removed" : "talk-only",
+diff --git a/app/src/main/java/com/serhat/autosub/subtitles/SubtitleGenerator.java b/app/src/main/java/com/serhat/autosub/subtitles/SubtitleGenerator.java
+index 271f09b..5a3dd3e 100644
+--- a/app/src/main/java/com/serhat/autosub/subtitles/SubtitleGenerator.java
++++ b/app/src/main/java/com/serhat/autosub/subtitles/SubtitleGenerator.java
+@@ -113,7 +113,8 @@ public class SubtitleGenerator {
+         SOFT_SUBTITLE_VIDEO,
+         HARD_SUBTITLE_VIDEO,
+         SRT,
+-        VTT
++        VTT,
++        MD
+     }
+ 
+     public static boolean isScanningSpeechProgress(int progress) {
+@@ -839,6 +840,8 @@ public class SubtitleGenerator {
+                     writeSrtSubtitles(exportEntries, fos);
+                 } else if (format.equalsIgnoreCase("vtt")) {
+                     writeVttSubtitles(exportEntries, fos);
++                } else if (format.equalsIgnoreCase("md")) {
++                    writeMarkdownSubtitles(exportEntries, fos);
+                 } else {
+                     throw new IllegalArgumentException("Unsupported subtitle format: " + format);
+                 }
+@@ -924,6 +927,18 @@ public class SubtitleGenerator {
+         }
+     }
+ 
++    private void writeMarkdownSubtitles(List<SubtitleEntry> entries, FileOutputStream fos) throws IOException {
++        try (Writer writer = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
++            writer.write("# 字幕文本\n\n");
++            writer.write("> 由本地字幕工坊生成，保留时间轴，便于在 ChatGPT 等应用中分析。\n\n");
++            for (SubtitleEntry entry : entries) {
++                writer.write("## " + entry.getStartTime() + " → " + entry.getEndTime() + "\n\n");
++                writer.write(entry.getText() == null ? "" : entry.getText());
++                writer.write("\n\n");
++            }
++        }
++    }
++
+     private String formatTimeVtt(String time) {
+         return time.replace(',', '.');
+     }
+@@ -1486,12 +1501,15 @@ public class SubtitleGenerator {
+         if (outputMode != CondensedOutputMode.VIDEO && projected.isEmpty()) {
+             throw new IOException("No subtitles overlap the retained speech");
+         }
+-        if (outputMode == CondensedOutputMode.SRT || outputMode == CondensedOutputMode.VTT) {
+-            String extension = outputMode == CondensedOutputMode.SRT ? "srt" : "vtt";
++        if (outputMode == CondensedOutputMode.SRT || outputMode == CondensedOutputMode.VTT
++                || outputMode == CondensedOutputMode.MD) {
++            String extension = outputMode == CondensedOutputMode.SRT ? "srt"
++                    : outputMode == CondensedOutputMode.VTT ? "vtt" : "md";
+             File output = uniqueOutputFile(exportDir, base + "_retimed", extension);
+             try (FileOutputStream stream = new FileOutputStream(output)) {
+                 if (outputMode == CondensedOutputMode.SRT) writeSrtSubtitles(projected, stream);
+-                else writeVttSubtitles(projected, stream);
++                else if (outputMode == CondensedOutputMode.VTT) writeVttSubtitles(projected, stream);
++                else writeMarkdownSubtitles(projected, stream);
+             }
+             callback.onProgressUpdate(100);
+             callback.onVideoExported(output.getAbsolutePath());
+diff --git a/app/src/main/java/com/serhat/autosub/ui/generate/GenerateFragment.java b/app/src/main/java/com/serhat/autosub/ui/generate/GenerateFragment.java
+index 0b491c3..1f58bd2 100644
+--- a/app/src/main/java/com/serhat/autosub/ui/generate/GenerateFragment.java
++++ b/app/src/main/java/com/serhat/autosub/ui/generate/GenerateFragment.java
+@@ -422,7 +422,8 @@ public class GenerateFragment extends Fragment implements ActionMode.Callback {
+                         new AppOptionDialog.Option("Soft subtitles", "Add a selectable, correctly retimed subtitle track."),
+                         new AppOptionDialog.Option("Hard subtitles", "Burn correctly retimed subtitles into the video."),
+                         new AppOptionDialog.Option("SRT subtitles", "Export only a correctly retimed SRT file."),
+-                        new AppOptionDialog.Option("VTT subtitles", "Export only a correctly retimed VTT file.")
++                        new AppOptionDialog.Option("VTT subtitles", "Export only a correctly retimed VTT file."),
++                        new AppOptionDialog.Option("Markdown transcript", "Export a readable, correctly retimed Markdown file for ChatGPT.")
+                 }, which -> {
+                     SubtitleGenerator.CondensedOutputMode mode = SubtitleGenerator.CondensedOutputMode.values()[which];
+                     if (mode == SubtitleGenerator.CondensedOutputMode.VIDEO) {
+@@ -445,7 +446,8 @@ public class GenerateFragment extends Fragment implements ActionMode.Callback {
+                         new SubtitleGenerator.VideoExportCallback() {
+                             @Override public void onVideoExported(String filePath) {
+                                 boolean video = mode != SubtitleGenerator.CondensedOutputMode.SRT
+-                                        && mode != SubtitleGenerator.CondensedOutputMode.VTT;
++                                        && mode != SubtitleGenerator.CondensedOutputMode.VTT
++                                        && mode != SubtitleGenerator.CondensedOutputMode.MD;
+                                 ExportFileActions.showExportCompleteDialog(
+                                         GenerateFragment.this, viewModel, filePath, video);
+                             }
+@@ -581,9 +583,12 @@ public class GenerateFragment extends Fragment implements ActionMode.Callback {
+                                 "Most common subtitle format. Works with many editors, players, and upload sites."),
+                         new AppOptionDialog.Option(
+                                 "VTT",
+-                                "Web-friendly subtitle format for browsers and HTML video workflows.")
++                                "Web-friendly subtitle format for browsers and HTML video workflows."),
++                        new AppOptionDialog.Option(
++                                "Markdown",
++                                "Readable transcript with timestamps, suitable for ChatGPT and notes.")
+                 }, which -> {
+-                    String format = (which == 0 ? "srt" : "vtt");
++                    String format = (which == 0 ? "srt" : which == 1 ? "vtt" : "md");
+                     chooseSubtitleLayerMode(item, layerMode ->
+                             ExportFolderDialog.show(this, "Save to folder", outputDir ->
+                                     executeSaveSubtitles(item, format, outputDir, layerMode)));
+@@ -693,6 +698,9 @@ public class GenerateFragment extends Fragment implements ActionMode.Callback {
+                         new AppOptionDialog.Option(
+                                 "Subtitle files as VTT",
+                                 "Create a web-ready VTT file for each completed video."),
++                        new AppOptionDialog.Option(
++                                "Transcripts as Markdown",
++                                "Create a timestamped Markdown transcript for each completed video."),
+                         new AppOptionDialog.Option(
+                                 "Videos with soft subtitles",
+                                 "Export videos with subtitle tracks that can be toggled in compatible players."),
+@@ -700,8 +708,8 @@ public class GenerateFragment extends Fragment implements ActionMode.Callback {
+                                 "Videos with hard subtitles",
+                                 "Export videos with subtitles burned into the image.")
+                 }, which -> {
+-                    if (which == 0 || which == 1) {
+-                        String format = (which == 0 ? "srt" : "vtt");
++                    if (which <= 2) {
++                        String format = (which == 0 ? "srt" : which == 1 ? "vtt" : "md");
+                         ExportFolderDialog.show(this, "Save batch to folder", outputDir -> {
+                             Toast.makeText(requireContext(), "Starting batch subtitle export...", Toast.LENGTH_SHORT).show();
+                             viewModel.batchSaveSubtitles(format, outputDir, new SubtitleGenerator.SubtitleSaveCallback() {
+@@ -719,7 +727,7 @@ public class GenerateFragment extends Fragment implements ActionMode.Callback {
+                         });
+                         });
+                     } else {
+-                        boolean burnSubtitles = (which == 3);
++                        boolean burnSubtitles = (which == 4);
+                         String fontName = burnSubtitles ? "RobotoRegular" : null;
+                         Runnable proceed = () -> ExportFolderDialog.show(this, "Export batch to folder", outputDir -> {
+                             Toast.makeText(requireContext(), "Starting batch video export...", Toast.LENGTH_SHORT).show();
+diff --git a/app/src/main/java/com/serhat/autosub/ui/preview/PreviewFragment.java b/app/src/main/java/com/serhat/autosub/ui/preview/PreviewFragment.java
+index ca209f9..dbf529b 100644
+--- a/app/src/main/java/com/serhat/autosub/ui/preview/PreviewFragment.java
++++ b/app/src/main/java/com/serhat/autosub/ui/preview/PreviewFragment.java
+@@ -866,6 +866,9 @@ public class PreviewFragment extends Fragment implements ActionMode.Callback {
+                         new AppOptionDialog.Option(
+                                 "VTT subtitle file",
+                                 "Web-friendly subtitle format for browsers and HTML video workflows."),
++                        new AppOptionDialog.Option(
++                                "Markdown transcript",
++                                "Readable transcript with timestamps, suitable for ChatGPT and notes."),
+                         new AppOptionDialog.Option(
+                                 "Soft subtitle video",
+                                 "Add a subtitle track that can be turned on or off in compatible players."),
+@@ -877,8 +880,10 @@ public class PreviewFragment extends Fragment implements ActionMode.Callback {
+                         saveSubtitlesInFormat("srt");
+                     } else if (which == 1) {
+                         saveSubtitlesInFormat("vtt");
++                    } else if (which == 2) {
++                        saveSubtitlesInFormat("md");
+                     } else {
+-                        boolean hardSubtitles = which == 3;
++                        boolean hardSubtitles = which == 4;
+                         if (!hardSubtitles && shouldAskSoftSubtitleContainer()) {
+                             chooseSubtitleLayerMode(this::choosePositionedSoftExportFormat);
+                         } else {
