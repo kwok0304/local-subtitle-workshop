@@ -1,0 +1,709 @@
+diff --git a/downloader/build.gradle b/downloader/build.gradle
+new file mode 100644
+index 0000000..915b781
+--- /dev/null
++++ b/downloader/build.gradle
+@@ -0,0 +1,39 @@
++plugins {
++    alias(libs.plugins.android.application)
++}
++
++android {
++    namespace 'com.niugulu.douyindownloader'
++    compileSdk {
++        version = release(36)
++    }
++
++    defaultConfig {
++        applicationId "com.niugulu.douyindownloader"
++        minSdk 29
++        targetSdk 36
++        versionCode 3
++        versionName "1.2"
++    }
++
++    splits {
++        abi {
++            enable true
++            reset()
++            include 'arm64-v8a'
++            universalApk false
++        }
++    }
++
++    compileOptions {
++        sourceCompatibility JavaVersion.VERSION_11
++        targetCompatibility JavaVersion.VERSION_11
++    }
++}
++
++dependencies {
++    implementation libs.appcompat
++    implementation libs.material
++    implementation files('../app/libs/ffmpeg-kit.aar')
++    implementation 'com.arthenica:smart-exception-java:0.2.1'
++}
+diff --git a/downloader/src/main/AndroidManifest.xml b/downloader/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..c18120e
+--- /dev/null
++++ b/downloader/src/main/AndroidManifest.xml
+@@ -0,0 +1,25 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++    <uses-permission android:name="android.permission.INTERNET" />
++
++    <application
++        android:allowBackup="true"
++        android:label="抖音下载助手"
++        android:theme="@style/Theme.DouyinDownloader"
++        android:usesCleartextTraffic="false">
++        <activity
++            android:name=".MainActivity"
++            android:configChanges="keyboardHidden|orientation|screenSize"
++            android:exported="true">
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++                <category android:name="android.intent.category.LAUNCHER" />
++            </intent-filter>
++            <intent-filter>
++                <action android:name="android.intent.action.SEND" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <data android:mimeType="text/plain" />
++            </intent-filter>
++        </activity>
++    </application>
++</manifest>
+diff --git a/downloader/src/main/java/com/niugulu/douyindownloader/MainActivity.java b/downloader/src/main/java/com/niugulu/douyindownloader/MainActivity.java
+new file mode 100644
+index 0000000..93a098b
+--- /dev/null
++++ b/downloader/src/main/java/com/niugulu/douyindownloader/MainActivity.java
+@@ -0,0 +1,602 @@
++package com.niugulu.douyindownloader;
++
++import android.annotation.SuppressLint;
++import android.content.ClipData;
++import android.content.ClipboardManager;
++import android.content.ContentValues;
++import android.content.Context;
++import android.content.Intent;
++import android.net.Uri;
++import android.os.Build;
++import android.os.Bundle;
++import android.os.Environment;
++import android.os.Handler;
++import android.os.Looper;
++import android.provider.MediaStore;
++import android.view.View;
++import android.view.ViewGroup;
++import android.webkit.CookieManager;
++import android.webkit.JavascriptInterface;
++import android.webkit.WebChromeClient;
++import android.webkit.WebResourceRequest;
++import android.webkit.WebResourceResponse;
++import android.webkit.WebSettings;
++import android.webkit.WebView;
++import android.webkit.WebViewClient;
++import android.widget.Button;
++import android.widget.EditText;
++import android.widget.LinearLayout;
++import android.widget.ProgressBar;
++import android.widget.TextView;
++import android.widget.Toast;
++
++import androidx.annotation.Nullable;
++import androidx.appcompat.app.AppCompatActivity;
++
++import com.arthenica.ffmpegkit.FFmpegKit;
++import com.arthenica.ffmpegkit.FFmpegSession;
++import com.arthenica.ffmpegkit.ReturnCode;
++
++import org.json.JSONArray;
++
++import java.io.BufferedInputStream;
++import java.io.BufferedOutputStream;
++import java.io.File;
++import java.io.FileOutputStream;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.io.OutputStreamWriter;
++import java.io.PrintWriter;
++import java.io.StringWriter;
++import java.net.HttpURLConnection;
++import java.net.URL;
++import java.nio.charset.StandardCharsets;
++import java.text.SimpleDateFormat;
++import java.util.Date;
++import java.util.Locale;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++import java.util.regex.Matcher;
++import java.util.regex.Pattern;
++
++public class MainActivity extends AppCompatActivity {
++    private static final int CREATE_LOG_REQUEST = 7101;
++    private static final String HOME_URL = "https://www.douyin.com/";
++    private static final String DESKTOP_USER_AGENT =
++            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
++                    + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
++    private static final Pattern SHARED_URL = Pattern.compile("https?://[^\\s]+", Pattern.CASE_INSENSITIVE);
++    private static final Pattern AWEME_ID = Pattern.compile("(?:video/|modal_id=)(\\d{15,20})");
++
++    private final Handler mainHandler = new Handler(Looper.getMainLooper());
++    private final ExecutorService executor = Executors.newSingleThreadExecutor();
++    private final StringBuilder logBuffer = new StringBuilder();
++    private EditText linkInput;
++    private Button downloadButton;
++    private TextView statusText;
++    private ProgressBar progressBar;
++    private WebView webView;
++    private String pageUrl = HOME_URL;
++    private String videoUrl;
++    private String audioUrl;
++    private int videoRate = -1;
++    private int audioRate = -1;
++    private int lastJsResourceCount;
++    private boolean mediaReadyLogged;
++    private volatile boolean captureEnabled;
++    private boolean downloading;
++    private volatile HttpURLConnection activeConnection;
++
++    @Override
++    protected void onCreate(@Nullable Bundle savedInstanceState) {
++        super.onCreate(savedInstanceState);
++        buildUi();
++        configureWebView();
++        appendLog("APP_START", "version=1.2; sdk=" + Build.VERSION.SDK_INT
++                + "; device=" + Build.MANUFACTURER + " " + Build.MODEL);
++        if (Build.VERSION.SDK_INT >= 26 && WebView.getCurrentWebViewPackage() != null) {
++            appendLog("WEBVIEW", WebView.getCurrentWebViewPackage().packageName + " "
++                    + WebView.getCurrentWebViewPackage().versionName);
++        }
++        fillFromIntentOrClipboard(getIntent());
++        if (savedInstanceState == null) webView.loadUrl(HOME_URL);
++    }
++
++    private void buildUi() {
++        LinearLayout root = new LinearLayout(this);
++        root.setOrientation(LinearLayout.VERTICAL);
++        root.setPadding(dp(12), dp(12), dp(12), dp(8));
++
++        TextView title = new TextView(this);
++        title.setText("抖音下载助手");
++        title.setTextSize(24);
++        root.addView(title, matchWrap());
++
++        TextView hint = new TextView(this);
++        hint.setText("公开作品先免登录尝试；如页面要求验证，请点“登录抖音”并在下方网页完成登录。");
++        hint.setPadding(0, dp(4), 0, dp(8));
++        root.addView(hint, matchWrap());
++
++        linkInput = new EditText(this);
++        linkInput.setHint("粘贴整段分享文字或 https://v.douyin.com/…");
++        linkInput.setSingleLine(true);
++        root.addView(linkInput, matchWrap());
++
++        LinearLayout actions = new LinearLayout(this);
++        actions.setOrientation(LinearLayout.HORIZONTAL);
++        Button openButton = button("打开链接");
++        Button loginButton = button("登录抖音");
++        Button clearButton = button("清除登录");
++        actions.addView(openButton, weighted());
++        actions.addView(loginButton, weighted());
++        actions.addView(clearButton, weighted());
++        root.addView(actions, matchWrap());
++
++        statusText = new TextView(this);
++        statusText.setText("在上方粘贴链接，或从抖音分享至本 App");
++        statusText.setPadding(0, dp(8), 0, dp(4));
++        root.addView(statusText, matchWrap());
++
++        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
++        progressBar.setMax(100);
++        root.addView(progressBar, matchWrap());
++
++        downloadButton = button("等待识别音视频资源");
++        downloadButton.setEnabled(false);
++        root.addView(downloadButton, matchWrap());
++
++        Button exportLogButton = button("导出下载日志");
++        root.addView(exportLogButton, matchWrap());
++
++        webView = new WebView(this);
++        root.addView(webView, new LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
++        setContentView(root);
++
++        openButton.setOnClickListener(v -> openSharedLink());
++        loginButton.setOnClickListener(v -> {
++            resetCapture();
++            appendLog("LOGIN_OPEN", HOME_URL);
++            statusText.setText("请在下方网页完成登录；登录后再打开作品链接");
++            webView.loadUrl(HOME_URL);
++        });
++        clearButton.setOnClickListener(v -> CookieManager.getInstance().removeAllCookies(ok -> {
++            CookieManager.getInstance().flush();
++            appendLog("COOKIE_CLEAR", "success=" + ok);
++            Toast.makeText(this, "登录 Cookie 已清除", Toast.LENGTH_SHORT).show();
++            webView.loadUrl(HOME_URL);
++        }));
++        downloadButton.setOnClickListener(v -> startDownload());
++        exportLogButton.setOnClickListener(v -> exportLogs());
++    }
++
++    private Button button(String text) {
++        Button button = new Button(this);
++        button.setText(text);
++        button.setAllCaps(false);
++        return button;
++    }
++
++    private LinearLayout.LayoutParams matchWrap() {
++        return new LinearLayout.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
++    }
++
++    private LinearLayout.LayoutParams weighted() {
++        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
++    }
++
++    private int dp(int value) {
++        return Math.round(value * getResources().getDisplayMetrics().density);
++    }
++
++    @SuppressLint("SetJavaScriptEnabled")
++    private void configureWebView() {
++        WebSettings settings = webView.getSettings();
++        settings.setJavaScriptEnabled(true);
++        settings.setDomStorageEnabled(true);
++        settings.setDatabaseEnabled(true);
++        settings.setUseWideViewPort(true);
++        settings.setLoadWithOverviewMode(true);
++        settings.setMediaPlaybackRequiresUserGesture(false);
++        settings.setUserAgentString(DESKTOP_USER_AGENT);
++        settings.setBuiltInZoomControls(true);
++        settings.setDisplayZoomControls(false);
++        CookieManager cookies = CookieManager.getInstance();
++        cookies.setAcceptCookie(true);
++        cookies.setAcceptThirdPartyCookies(webView, true);
++        webView.addJavascriptInterface(new ResourceBridge(), "DownloaderBridge");
++        webView.setWebChromeClient(new WebChromeClient());
++        webView.setWebViewClient(new WebViewClient() {
++            @Override
++            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
++                return false;
++            }
++
++            @Override
++            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
++                String resource = request.getUrl() == null ? "" : request.getUrl().toString();
++                if (captureEnabled && isMediaCandidate(resource)) {
++                    mainHandler.post(() -> considerResource(resource));
++                }
++                return super.shouldInterceptRequest(view, request);
++            }
++
++            @Override
++            public void onPageFinished(WebView view, String url) {
++                pageUrl = url == null ? pageUrl : url;
++                CookieManager.getInstance().flush();
++                appendLog("PAGE_FINISHED", pageUrl);
++                if (captureEnabled) {
++                    statusText.setText("页面已打开。若尚未识别，请在下方点击视频播放");
++                    pollPageResources();
++                }
++            }
++        });
++    }
++
++    private void openSharedLink() {
++        String url;
++        try {
++            url = extractUrl(linkInput.getText().toString());
++        } catch (IllegalArgumentException error) {
++            Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
++            return;
++        }
++        resetCapture();
++        captureEnabled = true;
++        appendLog("OPEN_LINK", url);
++        statusText.setText("正在打开作品页…");
++        webView.loadUrl(url);
++        mainHandler.postDelayed(this::pollPageResources, 1500);
++    }
++
++    private void resetCapture() {
++        appendLog("CAPTURE_RESET", "downloading=" + downloading);
++        captureEnabled = false;
++        videoUrl = null;
++        audioUrl = null;
++        videoRate = -1;
++        audioRate = -1;
++        lastJsResourceCount = 0;
++        mediaReadyLogged = false;
++        downloadButton.setEnabled(false);
++        downloadButton.setText("等待识别音视频资源");
++        progressBar.setProgress(0);
++    }
++
++    private void pollPageResources() {
++        if (downloading || webView == null) return;
++        String script = "(function(){try{" +
++                "document.querySelectorAll('video').forEach(function(v){v.muted=true;" +
++                "var p=v.play();if(p&&p.catch)p.catch(function(){});});" +
++                "var xs=performance.getEntriesByType('resource').map(function(e){return e.name;})" +
++                ".filter(function(u){return /media-video|media-audio/i.test(u);});" +
++                "DownloaderBridge.onResources(JSON.stringify(xs));" +
++                "}catch(e){DownloaderBridge.onDiagnostic(String(e));}})();";
++        webView.evaluateJavascript(script, null);
++        if (videoUrl == null || audioUrl == null) {
++            mainHandler.postDelayed(this::pollPageResources, 1500);
++        }
++    }
++
++    private final class ResourceBridge {
++        @JavascriptInterface
++        public void onResources(String json) {
++            mainHandler.post(() -> {
++                try {
++                    JSONArray items = new JSONArray(json);
++                    if (items.length() > lastJsResourceCount) {
++                        lastJsResourceCount = items.length();
++                        appendLog("JS_RESOURCES", "count=" + items.length());
++                    }
++                    for (int i = 0; i < items.length(); i++) considerResource(items.optString(i));
++                } catch (Exception ignored) {
++                }
++            });
++        }
++
++        @JavascriptInterface
++        public void onDiagnostic(String message) {
++            mainHandler.post(() -> appendLog("JS_DIAGNOSTIC", message));
++        }
++    }
++
++    private void considerResource(String resource) {
++        if (downloading || !isMediaCandidate(resource)) return;
++        int rate = queryInt(resource, "br");
++        if (resource.contains("media-video") && (videoUrl == null || rate > videoRate)) {
++            videoUrl = resource;
++            videoRate = rate;
++            appendLog("VIDEO_RESOURCE", describeResource(resource));
++        } else if (resource.contains("media-audio") && (audioUrl == null || rate > audioRate)) {
++            audioUrl = resource;
++            audioRate = rate;
++            appendLog("AUDIO_RESOURCE", describeResource(resource));
++        }
++        if (videoUrl != null && audioUrl != null && !mediaReadyLogged) {
++            mediaReadyLogged = true;
++            statusText.setText("已识别视频和声音，可以下载");
++            downloadButton.setText("下载并合并到手机");
++            downloadButton.setEnabled(true);
++            appendLog("MEDIA_READY", "video_br=" + videoRate + "; audio_br=" + audioRate);
++        }
++    }
++
++    private void startDownload() {
++        if (videoUrl == null || audioUrl == null || downloading) return;
++        downloading = true;
++        downloadButton.setEnabled(false);
++        webView.onPause();
++        String selectedVideo = videoUrl;
++        String selectedAudio = audioUrl;
++        String cookies = CookieManager.getInstance().getCookie(pageUrl);
++        appendLog("DOWNLOAD_CLICK", "cookie_present=" + (cookies != null && !cookies.isEmpty())
++                + "; cookie_chars=" + (cookies == null ? 0 : cookies.length()));
++        executor.execute(() -> downloadAndSave(selectedVideo, selectedAudio, cookies == null ? "" : cookies));
++    }
++
++    private void downloadAndSave(String selectedVideo, String selectedAudio, String cookies) {
++        File videoPart = new File(getCacheDir(), "douyin-video.part");
++        File audioPart = new File(getCacheDir(), "douyin-audio.part");
++        File merged = new File(getCacheDir(), "douyin-merged.mp4");
++        long operationStarted = System.currentTimeMillis();
++        try {
++            downloadResource(selectedVideo, videoPart, cookies, "下载画面", 0, 82);
++            downloadResource(selectedAudio, audioPart, cookies, "下载声音", 82, 95);
++            postStatus("正在合并视频和声音…", 96);
++            appendLog("MUX_START", "video_bytes=" + videoPart.length()
++                    + "; audio_bytes=" + audioPart.length());
++            if (merged.exists()) merged.delete();
++            String command = String.format(Locale.US,
++                    "-y -i %s -i %s -map 0:v:0 -map 1:a:0 -c copy -movflags +faststart %s",
++                    quote(videoPart), quote(audioPart), quote(merged));
++            FFmpegSession session = FFmpegKit.execute(command);
++            appendLog("MUX_END", "return_code=" + session.getReturnCode()
++                    + "; elapsed_ms=" + (System.currentTimeMillis() - operationStarted)
++                    + "; output_bytes=" + merged.length());
++            appendLog("FFMPEG_LOG", truncate(session.getLogsAsString(), 12000));
++            if (!ReturnCode.isSuccess(session.getReturnCode()) || !merged.isFile()) {
++                throw new IllegalStateException("合并失败：" + session.getLogsAsString());
++            }
++            postStatus("正在写入系统下载目录…", 97);
++            appendLog("SAVE_START", "source_bytes=" + merged.length());
++            saveToDownloads(merged);
++            appendLog("SAVE_END", "total_elapsed_ms=" + (System.currentTimeMillis() - operationStarted));
++            mainHandler.post(() -> {
++                downloading = false;
++                progressBar.setProgress(100);
++                statusText.setText("已保存到 Movies/DouyinDownloader");
++                downloadButton.setText("下载完成");
++                Toast.makeText(this, "视频已保存，可到字幕工坊选择该文件", Toast.LENGTH_LONG).show();
++                webView.onResume();
++            });
++        } catch (Exception error) {
++            appendException("OPERATION_FAILED", error);
++            mainHandler.post(() -> {
++                downloading = false;
++                webView.onResume();
++                downloadButton.setEnabled(videoUrl != null && audioUrl != null);
++                downloadButton.setText("重试下载");
++                statusText.setText("失败：" + (error.getMessage() == null ? "未知错误" : error.getMessage()));
++            });
++        } finally {
++            videoPart.delete();
++            audioPart.delete();
++            merged.delete();
++            activeConnection = null;
++        }
++    }
++
++    private void downloadResource(String target, File destination, String cookies,
++                                  String label, int start, int end) throws Exception {
++        HttpURLConnection connection = (HttpURLConnection) new URL(target).openConnection();
++        activeConnection = connection;
++        connection.setConnectTimeout(20_000);
++        connection.setReadTimeout(60_000);
++        connection.setRequestProperty("User-Agent", DESKTOP_USER_AGENT);
++        connection.setRequestProperty("Referer", pageUrl);
++        if (!cookies.isEmpty()) connection.setRequestProperty("Cookie", cookies);
++        appendLog("HTTP_OPEN", label + "; " + describeResource(target));
++        int code = connection.getResponseCode();
++        appendLog("HTTP_RESPONSE", label + "; code=" + code
++                + "; content_length=" + connection.getContentLengthLong());
++        if (code < 200 || code >= 300) throw new IllegalStateException(label + "失败（HTTP " + code + "）");
++        long total = connection.getContentLengthLong();
++        long received = 0;
++        int lastLoggedPercent = -10;
++        try (InputStream input = new BufferedInputStream(connection.getInputStream());
++             OutputStream output = new BufferedOutputStream(new FileOutputStream(destination))) {
++            byte[] buffer = new byte[128 * 1024];
++            int read;
++            while ((read = input.read(buffer)) != -1) {
++                output.write(buffer, 0, read);
++                received += read;
++                int percent = total > 0 ? start + (int) Math.min(end - start,
++                        received * (end - start) / total) : start;
++                postStatus(label + "：" + percent + "%", percent);
++                if (percent >= lastLoggedPercent + 10 || percent >= end) {
++                    appendLog("HTTP_PROGRESS", label + "; percent=" + percent + "; bytes=" + received);
++                    lastLoggedPercent = percent;
++                }
++            }
++        } finally {
++            connection.disconnect();
++            activeConnection = null;
++        }
++        appendLog("HTTP_DONE", label + "; bytes=" + destination.length());
++    }
++
++    private Uri saveToDownloads(File source) throws Exception {
++        String id = extractAwemeId(pageUrl);
++        ContentValues values = new ContentValues();
++        values.put(MediaStore.Video.Media.DISPLAY_NAME, "douyin_" + id + ".mp4");
++        values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
++        if (android.os.Build.VERSION.SDK_INT >= 29) {
++            values.put(MediaStore.Video.Media.RELATIVE_PATH,
++                    Environment.DIRECTORY_MOVIES + "/DouyinDownloader");
++            values.put(MediaStore.Video.Media.IS_PENDING, 1);
++        }
++        Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
++        if (uri == null) throw new IllegalStateException("无法创建系统下载文件");
++        try (InputStream input = new BufferedInputStream(new java.io.FileInputStream(source));
++             OutputStream output = new BufferedOutputStream(getContentResolver().openOutputStream(uri))) {
++            byte[] buffer = new byte[128 * 1024];
++            int read;
++            long copied = 0;
++            long total = source.length();
++            int lastPercent = 96;
++            while ((read = input.read(buffer)) != -1) {
++                output.write(buffer, 0, read);
++                copied += read;
++                int percent = total > 0 ? 97 + (int) Math.min(3, copied * 3 / total) : 97;
++                if (percent > lastPercent) {
++                    postStatus("正在写入系统下载目录：" + percent + "%", percent);
++                    appendLog("SAVE_PROGRESS", "percent=" + percent + "; bytes=" + copied);
++                    lastPercent = percent;
++                }
++            }
++        } catch (Exception error) {
++            getContentResolver().delete(uri, null, null);
++            throw error;
++        }
++        if (android.os.Build.VERSION.SDK_INT >= 29) {
++            ContentValues ready = new ContentValues();
++            ready.put(MediaStore.Video.Media.IS_PENDING, 0);
++            getContentResolver().update(uri, ready, null, null);
++        }
++        return uri;
++    }
++
++    private void postStatus(String message, int percent) {
++        mainHandler.post(() -> {
++            statusText.setText(message);
++            progressBar.setProgress(percent);
++        });
++    }
++
++    private void exportLogs() {
++        appendLog("LOG_EXPORT_REQUEST", "chars=" + snapshotLogs().length());
++        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
++        intent.addCategory(Intent.CATEGORY_OPENABLE);
++        intent.setType("text/plain");
++        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
++        intent.putExtra(Intent.EXTRA_TITLE, "douyin-downloader-" + stamp + ".log.txt");
++        startActivityForResult(intent, CREATE_LOG_REQUEST);
++    }
++
++    @Override
++    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
++        super.onActivityResult(requestCode, resultCode, data);
++        if (requestCode != CREATE_LOG_REQUEST || resultCode != RESULT_OK
++                || data == null || data.getData() == null) return;
++        Uri destination = data.getData();
++        appendLog("LOG_EXPORT_WRITE", "destination_selected=true");
++        try (OutputStream output = getContentResolver().openOutputStream(destination);
++             OutputStreamWriter writer = new OutputStreamWriter(output, StandardCharsets.UTF_8)) {
++            writer.write(snapshotLogs());
++            Toast.makeText(this, "日志已保存", Toast.LENGTH_LONG).show();
++        } catch (Exception error) {
++            appendException("LOG_EXPORT_FAILED", error);
++            Toast.makeText(this, "保存日志失败：" + error.getMessage(), Toast.LENGTH_LONG).show();
++        }
++    }
++
++    private void appendLog(String event, String details) {
++        String time = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(new Date());
++        synchronized (logBuffer) {
++            logBuffer.append(time).append(" | ").append(event).append(" | ")
++                    .append(details == null ? "" : details).append('\n');
++        }
++    }
++
++    private void appendException(String event, Throwable error) {
++        StringWriter buffer = new StringWriter();
++        error.printStackTrace(new PrintWriter(buffer));
++        appendLog(event, buffer.toString());
++    }
++
++    private String snapshotLogs() {
++        synchronized (logBuffer) {
++            return logBuffer.toString();
++        }
++    }
++
++    private static String truncate(String text, int maxChars) {
++        if (text == null) return "";
++        return text.length() <= maxChars ? text : text.substring(text.length() - maxChars);
++    }
++
++    private static String describeResource(String resource) {
++        try {
++            URL url = new URL(resource);
++            return "host=" + url.getHost() + "; path=" + url.getPath()
++                    + "; br=" + queryInt(resource, "br");
++        } catch (Exception ignored) {
++            return "unparseable_resource";
++        }
++    }
++
++    private void fillFromIntentOrClipboard(Intent intent) {
++        String text = null;
++        if (Intent.ACTION_SEND.equals(intent.getAction())) text = intent.getStringExtra(Intent.EXTRA_TEXT);
++        if (text == null) {
++            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
++            ClipData clip = clipboard == null ? null : clipboard.getPrimaryClip();
++            if (clip != null && clip.getItemCount() > 0) {
++                CharSequence value = clip.getItemAt(0).coerceToText(this);
++                if (value != null && value.toString().contains("http")) text = value.toString();
++            }
++        }
++        if (text != null) linkInput.setText(text);
++    }
++
++    private static String extractUrl(String text) {
++        Matcher matcher = SHARED_URL.matcher(text == null ? "" : text.trim());
++        if (!matcher.find()) throw new IllegalArgumentException("没有找到有效分享链接");
++        String url = matcher.group();
++        while (url.endsWith("。") || url.endsWith("，") || url.endsWith(",")
++                || url.endsWith(";") || url.endsWith("；")) {
++            url = url.substring(0, url.length() - 1);
++        }
++        return url;
++    }
++
++    private static boolean isMediaCandidate(String resource) {
++        return resource != null && (resource.contains("media-video") || resource.contains("media-audio"));
++    }
++
++    private static int queryInt(String url, String key) {
++        try {
++            String query = new URL(url).getQuery();
++            if (query == null) return -1;
++            for (String pair : query.split("&")) {
++                String[] parts = pair.split("=", 2);
++                if (parts.length == 2 && key.equals(parts[0])) return Integer.parseInt(parts[1]);
++            }
++        } catch (Exception ignored) {
++        }
++        return -1;
++    }
++
++    private static String extractAwemeId(String url) {
++        Matcher matcher = AWEME_ID.matcher(url == null ? "" : url);
++        return matcher.find() ? matcher.group(1) : String.valueOf(System.currentTimeMillis());
++    }
++
++    private static String quote(File file) {
++        return "\"" + file.getAbsolutePath().replace("\"", "\\\"") + "\"";
++    }
++
++    @Override
++    protected void onDestroy() {
++        mainHandler.removeCallbacksAndMessages(null);
++        if (activeConnection != null) activeConnection.disconnect();
++        executor.shutdownNow();
++        if (webView != null) {
++            webView.stopLoading();
++            webView.destroy();
++        }
++        super.onDestroy();
++    }
++}
+diff --git a/downloader/src/main/res/values/styles.xml b/downloader/src/main/res/values/styles.xml
+new file mode 100644
+index 0000000..188a314
+--- /dev/null
++++ b/downloader/src/main/res/values/styles.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <style name="Theme.DouyinDownloader" parent="Theme.Material3.DayNight.NoActionBar">
++        <item name="android:fontFamily">sans</item>
++        <item name="android:colorAccent">#64D8CB</item>
++        <item name="colorPrimary">#64D8CB</item>
++        <item name="colorSecondary">#64D8CB</item>
++        <item name="android:navigationBarColor">#101014</item>
++    </style>
++</resources>
+diff --git a/settings.gradle b/settings.gradle
+index 7c13801..19ecd15 100644
+--- a/settings.gradle
++++ b/settings.gradle
+@@ -23,3 +23,4 @@ dependencyResolutionManagement {
+ rootProject.name = "auto-subtitle-generator"
+ include ':app'
+ include ':whisper'
++include ':downloader'

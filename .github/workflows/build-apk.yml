@@ -3,6 +3,8 @@ name: Build Local Subtitle Workshop APK
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +23,18 @@ jobs:
           cd source
           git checkout a5ae6abe8b13a7d3afc1a5f3c9b9e497be3004d6
 
+      - name: Add standalone Douyin downloader app
+        run: git -C source apply ../patches/douyin-downloader-app.patch
+
+      - name: Prefer China-hosted Whisper models
+        run: git -C source apply ../patches/subtitle-cn-model-source.patch
+
+      - name: Recommend fast Chinese mobile models
+        run: git -C source apply ../patches/subtitle-cn-model-guidance.patch
+
+      - name: Fix subtitle sharing and add Markdown export
+        run: git -C source apply ../patches/subtitle-export-sharing-md.patch
+
       - name: Apply Chinese UI identity
         working-directory: source
         run: |
@@ -30,7 +44,8 @@ jobs:
           replacements = {
               "app/build.gradle": [
                   ('applicationId "com.serhat.autosub"', 'applicationId "com.niugulu.localsub"'),
-                  ('versionName "1.5"', 'versionName "1.5-zh"'),
+                  ('versionCode 6', 'versionCode 11'),
+                  ('versionName "1.5"', 'versionName "1.9-zh-share-md"'),
               ],
               "app/src/main/res/values/strings.xml": [
                   ('>AutoSub<', '>本地字幕工坊<'),
@@ -194,5 +209,13 @@ jobs:
         with:
           name: local-subtitle-workshop-zh-arm64-v8a
           path: source/app/build/outputs/apk/**/*arm64-v8a*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload standalone Douyin downloader
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-downloader-helper-arm64-v8a
+          path: source/downloader/build/outputs/apk/**/*arm64-v8a*.apk
           if-no-files-found: error
           retention-days: 7
