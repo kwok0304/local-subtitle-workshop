@@ -17,6 +17,9 @@ https://github.com/kwok0304/local-subtitle-workshop
 - Whisper 模型优先从国内 ModelScope 仓库下载；若镜像连接失败、缺文件或下载不完整，会自动续传并回退 Hugging Face 官方源。
 - Vosk 模型仍使用上游目录中的官方 alphacephei.com 地址，未找到覆盖完整目录且可校验的统一国内镜像。
 - 国内模型源补丁：`patches/subtitle-cn-model-source.patch`。
+- 真机反馈 Vosk 中文 1.3G 官方源仅约 5.8 KB/s；该模型本身也面向服务器，不适合手机。
+- 版本 `1.8-zh-cn-fast` / `versionCode 10` 将 57M 的中文 Whisper Base Q5_1 提到列表前部并明确标为推荐；点击中文 Vosk 服务器大模型时会提供一键改下推荐模型。
+- 中文模型引导补丁：`patches/subtitle-cn-model-guidance.patch`。
 
 ## 2026-08-25 独立抖音下载助手
 - 已用 `https://v.douyin.com/kJY6N2TxtJw/` 验证作品可下载；作品 ID `7677567300928654598`，成品 MP4 为 25:11.67、1080×1920、H.264/AAC。

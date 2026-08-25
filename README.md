@@ -9,4 +9,5 @@
 WebView 的 App 私有数据中。GitHub Actions 会克隆固定版本上游、应用补丁，并分别上传
 两个 `arm64-v8a` APK。字幕工坊下载 Whisper 模型时优先使用国内 ModelScope
 镜像，镜像不可用或缺少文件时自动回退到 Hugging Face 官方源；Vosk 模型继续使用
-上游提供的官方地址。
+上游提供的官方地址。模型列表会优先显示 57M 的“中文/多语言 Whisper Base Q5_1”；
+选择服务器级中文 Vosk 大模型时，也会提示改用这个更适合手机的国内源模型。
