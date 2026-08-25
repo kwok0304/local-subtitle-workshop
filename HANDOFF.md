@@ -19,6 +19,7 @@ https://github.com/kwok0304/local-subtitle-workshop
 - 同一作品已验证在未登录网页会话下也能取得视频与音频资源。
 - Android 构建补丁：`patches/douyin-downloader-app.patch`。
 - 下载助手 1.1 增加“导出下载日志”：使用系统文件选择器保存文本日志，记录资源识别、HTTP 下载、FFmpeg 合并及 MediaStore 写入步骤；不记录 Cookie 值或完整媒体签名参数。
+- 下载助手 1.2 将视频保存位置从不被部分系统允许的 `Download` 改为 `Movies/DouyinDownloader`；真机错误已证明解析、下载和 FFmpeg 合并成功，旧版仅失败于 MediaStore 最终写入。
 
 ## 用户真实目标（后续优先级）
 用户要的不是手动导入视频，而是：

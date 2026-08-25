@@ -1,6 +1,6 @@
 diff --git a/downloader/build.gradle b/downloader/build.gradle
 new file mode 100644
-index 0000000..9c348e5
+index 0000000..915b781
 --- /dev/null
 +++ b/downloader/build.gradle
 @@ -0,0 +1,39 @@
@@ -18,8 +18,8 @@ index 0000000..9c348e5
 +        applicationId "com.niugulu.douyindownloader"
 +        minSdk 29
 +        targetSdk 36
-+        versionCode 2
-+        versionName "1.1"
++        versionCode 3
++        versionName "1.2"
 +    }
 +
 +    splits {
@@ -76,7 +76,7 @@ index 0000000..c18120e
 +</manifest>
 diff --git a/downloader/src/main/java/com/niugulu/douyindownloader/MainActivity.java b/downloader/src/main/java/com/niugulu/douyindownloader/MainActivity.java
 new file mode 100644
-index 0000000..d01abde
+index 0000000..93a098b
 --- /dev/null
 +++ b/downloader/src/main/java/com/niugulu/douyindownloader/MainActivity.java
 @@ -0,0 +1,602 @@
@@ -174,7 +174,7 @@ index 0000000..d01abde
 +        super.onCreate(savedInstanceState);
 +        buildUi();
 +        configureWebView();
-+        appendLog("APP_START", "version=1.1; sdk=" + Build.VERSION.SDK_INT
++        appendLog("APP_START", "version=1.2; sdk=" + Build.VERSION.SDK_INT
 +                + "; device=" + Build.MANUFACTURER + " " + Build.MODEL);
 +        if (Build.VERSION.SDK_INT >= 26 && WebView.getCurrentWebViewPackage() != null) {
 +            appendLog("WEBVIEW", WebView.getCurrentWebViewPackage().packageName + " "
@@ -448,7 +448,7 @@ index 0000000..d01abde
 +            mainHandler.post(() -> {
 +                downloading = false;
 +                progressBar.setProgress(100);
-+                statusText.setText("已保存到 下载/DouyinDownloader");
++                statusText.setText("已保存到 Movies/DouyinDownloader");
 +                downloadButton.setText("下载完成");
 +                Toast.makeText(this, "视频已保存，可到字幕工坊选择该文件", Toast.LENGTH_LONG).show();
 +                webView.onResume();
@@ -516,7 +516,7 @@ index 0000000..d01abde
 +        values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
 +        if (android.os.Build.VERSION.SDK_INT >= 29) {
 +            values.put(MediaStore.Video.Media.RELATIVE_PATH,
-+                    Environment.DIRECTORY_DOWNLOADS + "/DouyinDownloader");
++                    Environment.DIRECTORY_MOVIES + "/DouyinDownloader");
 +            values.put(MediaStore.Video.Media.IS_PENDING, 1);
 +        }
 +        Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
