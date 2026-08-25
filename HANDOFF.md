@@ -18,6 +18,7 @@ https://github.com/kwok0304/local-subtitle-workshop
 - 当前采用独立 App：显示完整抖音 WebView，提供登录/清除登录入口；捕获视频和音频请求、手机直接下载并用 FFmpeg 合并，保存到 `下载/DouyinDownloader`。
 - 同一作品已验证在未登录网页会话下也能取得视频与音频资源。
 - Android 构建补丁：`patches/douyin-downloader-app.patch`。
+- 下载助手 1.1 增加“导出下载日志”：使用系统文件选择器保存文本日志，记录资源识别、HTTP 下载、FFmpeg 合并及 MediaStore 写入步骤；不记录 Cookie 值或完整媒体签名参数。
 
 ## 用户真实目标（后续优先级）
 用户要的不是手动导入视频，而是：
