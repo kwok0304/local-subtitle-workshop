@@ -1,0 +1,207 @@
+diff --git a/app/src/main/java/com/serhat/autosub/models/VoskModelManager.java b/app/src/main/java/com/serhat/autosub/models/VoskModelManager.java
+index 5045b58..5f92cb6 100644
+--- a/app/src/main/java/com/serhat/autosub/models/VoskModelManager.java
++++ b/app/src/main/java/com/serhat/autosub/models/VoskModelManager.java
+@@ -28,6 +28,10 @@ public class VoskModelManager {
+     private static final String KEY_SELECTED_MODEL_ID = "selected_model_id";
+     private static final String KEY_COMPATIBILITY_PREFIX = "compatibility_";
+     private static final String KEY_LOAD_MODE_PREFIX = "load_mode_";
++    private static final String WHISPER_HUGGING_FACE_PREFIX =
++            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
++    private static final String WHISPER_MODELSCOPE_PREFIX =
++            "https://www.modelscope.cn/models/cjc1887415157/whisper.cpp/resolve/master/";
+     public static final String DEFAULT_MODEL_ID = "whisper-base-en-q5_1";
+ 
+     public enum ModelLoadMode {
+@@ -436,6 +440,17 @@ public class VoskModelManager {
+         return preferences.getInt("download_progress_" + modelId, 0);
+     }
+ 
++    private List<String> getDownloadUrls(VoskModelInfo modelInfo) {
++        List<String> urls = new ArrayList<>();
++        String officialUrl = modelInfo.getDownloadUrl();
++        if (modelInfo.isWhisper() && officialUrl.startsWith(WHISPER_HUGGING_FACE_PREFIX)) {
++            String fileName = officialUrl.substring(WHISPER_HUGGING_FACE_PREFIX.length());
++            urls.add(WHISPER_MODELSCOPE_PREFIX + fileName);
++        }
++        urls.add(officialUrl);
++        return urls;
++    }
++
+     public void clearDownloadProgress(String modelId) {
+         preferences.edit().remove("download_progress_" + modelId).apply();
+     }
+@@ -488,73 +503,106 @@ public class VoskModelManager {
+ 
+             File zipFile = new File(modelsDir, modelInfo.getId() + ".download");
+             File targetDir = getModelDirectory(modelInfo);
+-            HttpURLConnection connection = null;
+ 
+             try {
+-                long existingBytes = zipFile.exists() ? zipFile.length() : 0;
+-                if (existingBytes == 0) {
+-                    deleteRecursively(targetDir);
+-                }
+-                
+-                URL url = new URL(modelInfo.getDownloadUrl());
+-                connection = (HttpURLConnection) url.openConnection();
+-                activeConnection = connection;
+-                connection.setConnectTimeout(15000);
+-                connection.setReadTimeout(30000);
+-                
+-                if (existingBytes > 0) {
+-                    connection.setRequestProperty("Range", "bytes=" + existingBytes + "-");
+-                }
+-                connection.connect();
+-
+-                int responseCode = connection.getResponseCode();
+-                boolean isPartial = (responseCode == HttpURLConnection.HTTP_PARTIAL);
+-                
+-                if (responseCode < 200 || responseCode >= 300) {
+-                    throw new IOException("Download failed with HTTP " + responseCode);
+-                }
+-
+-                long totalBytes = connection.getContentLengthLong();
+-                String contentRange = connection.getHeaderField("Content-Range");
+-                if (contentRange != null) {
++                long downloadedBytes = 0;
++                long totalBytes = 0;
++                Exception lastDownloadError = null;
++                boolean downloadComplete = false;
++
++                for (String downloadUrl : getDownloadUrls(modelInfo)) {
++                    HttpURLConnection connection = null;
+                     try {
+-                        int slashIndex = contentRange.lastIndexOf('/');
+-                        if (slashIndex >= 0) {
+-                            totalBytes = Long.parseLong(contentRange.substring(slashIndex + 1));
++                        long existingBytes = zipFile.exists() ? zipFile.length() : 0;
++                        if (existingBytes == 0) {
++                            deleteRecursively(targetDir);
+                         }
+-                    } catch (Exception ignored) {}
+-                } else if (isPartial && totalBytes > 0) {
+-                    totalBytes += existingBytes;
+-                }
+ 
+-                long downloadedBytes = isPartial ? existingBytes : 0;
+-                byte[] buffer = new byte[8192];
+-                int lastProgress = -1;
+-
+-                try (InputStream inputStream = new BufferedInputStream(connection.getInputStream());
+-                     FileOutputStream outputStream = new FileOutputStream(zipFile, isPartial)) {
+-                    activeInputStream = inputStream;
+-                    int read;
+-                    while ((read = inputStream.read(buffer)) != -1) {
+-                        if (cancelled) {
+-                            callback.onCancelled();
+-                            return;
++                        URL url = new URL(downloadUrl);
++                        connection = (HttpURLConnection) url.openConnection();
++                        activeConnection = connection;
++                        connection.setConnectTimeout(15000);
++                        connection.setReadTimeout(30000);
++
++                        if (existingBytes > 0) {
++                            connection.setRequestProperty("Range", "bytes=" + existingBytes + "-");
+                         }
+-                        if (paused) {
+-                            callback.onPaused();
+-                            return;
++                        connection.connect();
++
++                        int responseCode = connection.getResponseCode();
++                        boolean isPartial = (responseCode == HttpURLConnection.HTTP_PARTIAL);
++
++                        if (responseCode < 200 || responseCode >= 300) {
++                            throw new IOException("Download failed with HTTP " + responseCode);
+                         }
+-                        outputStream.write(buffer, 0, read);
+-                        downloadedBytes += read;
+-                        int progress = totalBytes > 0 ? (int) ((downloadedBytes * 100) / totalBytes) : 0;
+-                        if (progress != lastProgress) {
+-                            lastProgress = progress;
+-                            setDownloadProgress(modelInfo.getId(), progress);
+-                            callback.onProgress(progress, downloadedBytes, totalBytes);
++
++                        totalBytes = connection.getContentLengthLong();
++                        String contentRange = connection.getHeaderField("Content-Range");
++                        if (contentRange != null) {
++                            try {
++                                int slashIndex = contentRange.lastIndexOf('/');
++                                if (slashIndex >= 0) {
++                                    totalBytes = Long.parseLong(contentRange.substring(slashIndex + 1));
++                                }
++                            } catch (Exception ignored) {}
++                        } else if (isPartial && totalBytes > 0) {
++                            totalBytes += existingBytes;
++                        }
++
++                        downloadedBytes = isPartial ? existingBytes : 0;
++                        byte[] buffer = new byte[8192];
++                        int lastProgress = -1;
++
++                        try (InputStream inputStream = new BufferedInputStream(connection.getInputStream());
++                             FileOutputStream outputStream = new FileOutputStream(zipFile, isPartial)) {
++                            activeInputStream = inputStream;
++                            int read;
++                            while ((read = inputStream.read(buffer)) != -1) {
++                                if (cancelled) {
++                                    callback.onCancelled();
++                                    return;
++                                }
++                                if (paused) {
++                                    callback.onPaused();
++                                    return;
++                                }
++                                outputStream.write(buffer, 0, read);
++                                downloadedBytes += read;
++                                int progress = totalBytes > 0
++                                        ? (int) ((downloadedBytes * 100) / totalBytes) : 0;
++                                if (progress != lastProgress) {
++                                    lastProgress = progress;
++                                    setDownloadProgress(modelInfo.getId(), progress);
++                                    callback.onProgress(progress, downloadedBytes, totalBytes);
++                                }
++                            }
++                        }
++                        activeInputStream = null;
++
++                        if (totalBytes > 0 && downloadedBytes < totalBytes) {
++                            throw new IOException("Download ended before the complete model was received");
+                         }
++                        downloadComplete = true;
++                        lastDownloadError = null;
++                        break;
++                    } catch (Exception e) {
++                        lastDownloadError = e;
++                        if (cancelled || paused) {
++                            throw e;
++                        }
++                    } finally {
++                        activeInputStream = null;
++                        if (connection != null) {
++                            connection.disconnect();
++                        }
++                        activeConnection = null;
+                     }
+                 }
+-                activeInputStream = null;
++
++                if (!downloadComplete) {
++                    throw lastDownloadError == null
++                            ? new IOException("Model download failed") : lastDownloadError;
++                }
+ 
+                 if (cancelled) {
+                     callback.onCancelled();
+@@ -599,9 +647,6 @@ public class VoskModelManager {
+                 }
+                 callback.onError(e.getMessage() == null ? "Model download failed" : e.getMessage());
+             } finally {
+-                if (connection != null) {
+-                    connection.disconnect();
+-                }
+                 activeConnection = null;
+                 activeInputStream = null;
+                 if (zipFile.exists() && !paused) {

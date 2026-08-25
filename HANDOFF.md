@@ -11,6 +11,13 @@ https://github.com/kwok0304/local-subtitle-workshop
 - 主工作流：`.github/workflows/build-apk.yml`。
 - 注意：此仓库的工作流会克隆上游 `Serkali-sudo/auto-subtitle-generator` 源码，再在构建时应用中文化补丁；仓库当前不是完整 Android 源码镜像。
 
+## 2026-08-25 字幕 App 清理与国内模型源
+- 本地字幕工坊恢复为纯字幕识别 App，不包含抖音下载入口；抖音下载仍是另一个独立 App。
+- 字幕 App 版本提升为 `versionCode 9` / `1.7-zh-clean-cnmodels`，用于覆盖此前装过的集成测试版。
+- Whisper 模型优先从国内 ModelScope 仓库下载；若镜像连接失败、缺文件或下载不完整，会自动续传并回退 Hugging Face 官方源。
+- Vosk 模型仍使用上游目录中的官方 alphacephei.com 地址，未找到覆盖完整目录且可校验的统一国内镜像。
+- 国内模型源补丁：`patches/subtitle-cn-model-source.patch`。
+
 ## 2026-08-25 独立抖音下载助手
 - 已用 `https://v.douyin.com/kJY6N2TxtJw/` 验证作品可下载；作品 ID `7677567300928654598`，成品 MP4 为 25:11.67、1080×1920、H.264/AAC。
 - 用户不希望开启 Tailscale（会占用 Android VPN 槽并影响 V2Ray），因此已放弃 Windows 后端方案，也删除了计划任务与服务。

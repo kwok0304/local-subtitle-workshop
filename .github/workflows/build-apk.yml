@@ -26,6 +26,9 @@ jobs:
       - name: Add standalone Douyin downloader app
         run: git -C source apply ../patches/douyin-downloader-app.patch
 
+      - name: Prefer China-hosted Whisper models
+        run: git -C source apply ../patches/subtitle-cn-model-source.patch
+
       - name: Apply Chinese UI identity
         working-directory: source
         run: |
@@ -35,7 +38,8 @@ jobs:
           replacements = {
               "app/build.gradle": [
                   ('applicationId "com.serhat.autosub"', 'applicationId "com.niugulu.localsub"'),
-                  ('versionName "1.5"', 'versionName "1.5-zh"'),
+                  ('versionCode 6', 'versionCode 9'),
+                  ('versionName "1.5"', 'versionName "1.7-zh-clean-cnmodels"'),
               ],
               "app/src/main/res/values/strings.xml": [
                   ('>AutoSub<', '>本地字幕工坊<'),
