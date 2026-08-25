@@ -3,6 +3,8 @@ name: Build Local Subtitle Workshop APK
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +23,9 @@ jobs:
           cd source
           git checkout a5ae6abe8b13a7d3afc1a5f3c9b9e497be3004d6
 
+      - name: Add native Douyin link import
+        run: git -C source apply ../patches/douyin-native-import.patch
+
       - name: Apply Chinese UI identity
         working-directory: source
         run: |
@@ -30,7 +35,8 @@ jobs:
           replacements = {
               "app/build.gradle": [
                   ('applicationId "com.serhat.autosub"', 'applicationId "com.niugulu.localsub"'),
-                  ('versionName "1.5"', 'versionName "1.5-zh"'),
+                  ('versionCode 6', 'versionCode 7'),
+                  ('versionName "1.5"', 'versionName "1.6-zh-douyin-native"'),
               ],
               "app/src/main/res/values/strings.xml": [
                   ('>AutoSub<', '>本地字幕工坊<'),
